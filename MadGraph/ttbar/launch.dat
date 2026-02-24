@@ -1,0 +1,11 @@
+launch /ceph/abal/QFIT/MC/TTBar/
+    madspin=ON
+    set nevents 500000
+    set run_card ebeam1 6800
+    set run_card ebeam2 6800
+    set run_card pdlabel lhapdf
+    set run_card lhaid 325100
+    set run_card use_syst False
+    set run_card pt_min_pdg {6: 400.0}
+    set run_card eta_max_pdg {6: 2.5}
+done
