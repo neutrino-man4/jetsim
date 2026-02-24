@@ -24,12 +24,16 @@ Working installations of the following are required:
 ### 1. Hard Scattering with MadGraph (TTBar only)
 
 MadGraph is only used for the $t\bar{t}$ sample. For QCD dijets, the hard scattering is handled
-internally by Pythia8, and no MadGraph cards are provided for that process.
+internally by Pythia8, and no MadGraph cards are provided for that process. For ease of usage, define an alias as: 
+
+```bash
+alias madgraph='/path/to/MG5_aMC_v3_7_0/bin/mg5_aMC'
+```
 
 Navigate to `MadGraph/ttbar/` and edit the output directory in `gen.dat` as needed, then run:
 
 ```bash
-madgraph5_aMC@NLO < gen.dat
+madgraph gen.dat
 ```
 
 If MadSpin is needed to handle top quark decays, copy the decay card to the output directory:
@@ -41,7 +45,7 @@ cp madspin_card.dat <output_dir>/Cards/
 Finally, run the launch command:
 
 ```bash
-madgraph5_aMC@NLO < launch.dat
+madgraph launch.dat
 ```
 
 This produces an LHEF output that is passed to Pythia8 in the next step.
