@@ -1,0 +1,508 @@
+"""
+=============================================================================
+DOCUMENTED SUMMARY: makeNtuples.C
+=============================================================================
+Author: Aritra Bal
+Date  : 2026-02-24
+
+This document provides a detailed walkthrough of the makeNtuples.C ROOT macro,
+explaining all processing steps, data structures, labelling logic, and edge
+cases. The macro converts Delphes fast-detector-simulation output into flat
+ROOT TTrees suitable for machine learning studies of boosted jet tagging.
+=============================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The macro performs three conceptually distinct tasks for every jet in the
+input Delphes file:
+
+    (a) GENERATOR-LEVEL TRUTH MATCHING
+        Identifies which high-level hard-scatter parton (t, H, W, Z) the
+        reconstructed fat jet corresponds to, and classifies the degree to
+        which that parton's decay products are geometrically contained within
+        the jet cone.
+
+    (b) JET-LEVEL FEATURE EXTRACTION
+        Records kinematic and substructure observables of the AK8 fat jet
+        itself: pT, η, φ, energy, soft-drop mass, N-subjettiness τ₁–τ₄.
+
+    (c) CONSTITUENT-LEVEL FEATURE EXTRACTION
+        For every particle-flow candidate (PFC) inside the jet, records its
+        four-momentum components, displacement parameters (d₀, dz), charge,
+        and PID, along with coordinates relative to the jet axis (Δη, Δφ).
+
+One entry in the output TTree corresponds to one reconstructed AK8 fat jet.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. HELPER FUNCTIONS (file scope, before any class)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+deltaPhi(phi1, phi2)
+    Returns the signed azimuthal difference φ₁ − φ₂, wrapped to [−π, π]
+    using ROOT's TVector2::Phi_mpi_pi. This wrapping is important for
+    particles near the ±π boundary.
+
+deltaR(eta1, phi1, eta2, phi2)
+    Returns ΔR = √(Δη² + Δφ²) between two (η, φ) positions, using
+    std::hypot for numerical stability.
+
+deltaR(const T1 &a, const T2 &b)   [template overload]
+    Convenience overload accepting any two objects that expose ->Eta and
+    ->Phi, e.g. GenParticle*, Jet*. Delegates to the scalar version above.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. ParticleID NAMESPACE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Provides named integer constants for PDG IDs of particles used in the
+matching logic. Notable entries relevant to the matching:
+
+    p_d=1, p_u=2, p_s=3, p_c=4, p_b=5   quarks
+    p_t=6                                  top quark
+    p_eminus=11, p_muminus=13              charged leptons
+    p_g=21, p_gamma=22                     gluon, photon
+    p_Z0=23, p_Wplus=24, p_h0=25          electroweak bosons, Higgs
+
+The code uses std::abs(PID) throughout so that particles and antiparticles
+are treated identically.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. FatJetMatching CLASS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4.1  Enumerations
+─────────────────
+
+EventType   — coarse category of the hard-scatter process:
+    QCD=0, Higgs=1, Top=2, W=3, Z=4
+    Initialised to QCD; overwritten the first time a signal parton is found
+    whose decay products pass the matching criteria.
+
+FatJetLabel — fine-grained containment label for a specific jet:
+
+    Invalid = 0         No matching signal parton found for this jet.
+
+    Top_all  = 10       Generic top parent (not directly assigned).
+    Top_bcq  = 11       b + c + q all within cone  (fully merged, cs W decay)
+    Top_bqq  = 12       b + q + q all within cone  (fully merged, ud/us/cd W)
+    Top_bc   = 13       b + c in cone, second W quark outside
+    Top_bq   = 14       b + light q in cone, second W quark outside
+    Top_ben  = 15       b + electron in cone (leptonic W)
+    Top_bmn  = 16       b + muon in cone (leptonic W)
+
+    W_all    = 20       Generic W parent (not directly assigned).
+    W_cq     = 21       Both W quarks in cone, one is a charm
+    W_qq     = 22       Both W quarks in cone, both light quarks
+
+    Z_all    = 30       Generic Z parent (not directly assigned).
+    Z_bb     = 31       Z → bb̄, both b in cone
+    Z_cc     = 32       Z → cc̄, both c in cone
+    Z_qq     = 33       Z → qq̄, both light quarks in cone
+
+    H_all    = 40       Generic Higgs parent (not directly assigned).
+    H_bb     = 41       H → bb̄, both in cone
+    H_cc     = 42       H → cc̄, both in cone
+    H_qq     = 43       H → qq̄ (other light), both in cone
+    H_gg     = 44       H → gg (loop-induced), both in cone
+    H_ww4q   = 45       H → WW* → 4 quarks, ≥4 in cone
+    H_ww2q1l = 46       H → WW* → 2q + lepton, 2q + 1l in cone
+
+    QCD_all  = 50       QCD jet (no signal parton matched)
+    QCD_bb–QCD_others   (sub-labels for QCD heavy flavour content, unused
+                         in this ntuplizer since QCD jets are always written
+                         with gen_match = QCD_all = 50)
+
+4.2  Member Variables
+──────────────────────
+
+jetR_        double = 0.8    The AK8 cone radius. ΔR(jet, parton decay
+                              product) < jetR_ is the containment criterion.
+
+genParticles_ vector<GenParticle*>
+                              Flat copy of the full generator particle table
+                              for the current event. Indexed by particle
+                              position (used for D1/D2/M1/M2 integer indices).
+
+processed_   unordered_set<GenParticle*>
+                              Tracks which generator particles have been
+                              visited to prevent double-counting. Every
+                              particle in genParticles_ must appear here by
+                              the end of getLabel(); the final size check
+                              enforces this as a logic guard.
+
+event_type_  EventType        Set globally once per event when any signal
+                              parton is identified.
+
+
+4.3  getLabel(jet, branchParticle)  — main entry point
+───────────────────────────────────────────────────────
+
+Called once per reconstructed jet. Steps:
+
+    1. Fills genParticles_ from branchParticle (the Delphes Particle branch,
+       which contains the full Pythia/MadGraph generator record).
+
+    2. Clears processed_ and resets event_type_ to QCD.
+
+    3. Iterates over every generator particle. For each unprocessed particle
+       whose |PID| matches t, H, W, or Z, the corresponding private label
+       function is called. If that function returns a non-Invalid label, it
+       is returned immediately — the first matched parton wins.
+
+    4. If no signal parton is matched after the full loop, returns
+       (QCD_all, nullptr).
+
+    5. After the loop, asserts that processed_.size() == genParticles_.size().
+       This is a logic check: getFinal() marks every particle in a decay
+       chain as processed, so any unvisited particle would indicate a bug
+       in the traversal logic.
+
+NOTE on ordering: The generator record is iterated linearly. For a tt̄ event,
+both the top and antitop will be present. The first one that passes the
+geometric containment criteria returns immediately. If neither passes, the
+jet is QCD_all.
+
+
+4.4  getFinal(particle)
+────────────────────────
+
+Follows the decay chain of a particle forward through entries where a
+daughter has the same PID — this skips self-copy lines in the generator
+record (e.g. a top quark emitting a gluon before decaying, which Pythia
+records as t → t + g). Marks all intermediate copies as processed.
+
+Example: t(status=22) → t(status=44, emits gluon) → t(status=62, decays)
+getFinal() would return the status=62 version.
+
+
+4.5  isHadronic(particle, allow_gluon=false)
+─────────────────────────────────────────────
+
+Checks whether any of the direct daughters of a particle have |PID| in
+[1, 5] (quarks d through b). If allow_gluon=true (used only for Higgs),
+|PID|=21 also counts. Used to determine whether a W/Z/H decays hadronically.
+
+
+4.6  getDaughters(particle)
+────────────────────────────
+
+Returns all direct daughters of a particle by iterating the integer range
+[D1, D2] in genParticles_. Note: D1 and D2 are generator record indices,
+not PDG IDs.
+
+
+4.7  getDaughterQuarks(particle, allow_gluon=false)
+────────────────────────────────────────────────────
+
+Filters getDaughters() to return only quark daughters (|PID| in [1,5]),
+optionally including gluons (|PID|=21). Used to retrieve the final-state
+quarks from W/Z/H decays for ΔR computation.
+
+
+4.8  top_label(jet, parton)
+────────────────────────────
+
+Processing chain:
+
+    1. Follow the top through its self-copies: top = getFinal(parton).
+
+    2. Find the W and b among top's daughters:
+       - W daughter: |PID| == p_Wplus (24)
+       - b daughter: |PID| <= p_b (5)   ← note: this allows c, s, d too,
+                                           which can occur in rare CKM-off-
+                                           diagonal decays in the generator.
+
+       Then advance the W to its final state: w_from_top = getFinal(W).
+
+    3. HADRONIC W BRANCH (isHadronic(w_from_top) == true):
+
+       Retrieve the two W daughter quarks via getDaughterQuarks().
+       Sort them so dr_q1 <= dr_q2.
+
+       Containment logic (requires dr_b < jetR_ as the primary condition):
+
+           dr_b < R  AND  dr_q1 < R  AND  dr_q2 < R:
+               Fully merged. Label is Top_bcq if either W quark has
+               |PID| >= p_c (i.e. charm or heavier), else Top_bqq.
+
+           dr_b < R  AND  dr_q1 < R  AND  dr_q2 >= R:
+               Partially merged (one W quark escaped).
+               Label is Top_bc if q1 is charm, else Top_bq.
+
+           dr_b >= R:
+               The b quark has escaped the jet cone. In this case,
+               the code falls through to w_label(jet, w_from_top).
+               ─ IMPORTANT EDGE CASE ─
+               If the W decay products ARE contained, this jet is
+               assigned a W label (W_cq or W_qq) despite being from
+               a top event. gen_match will reflect the W label, not
+               a top label.
+
+    4. LEPTONIC W BRANCH (isHadronic(w_from_top) == false):
+
+       Searches W daughters for e or μ (|PID| == 11 or 13). Taus are
+       not included. Gets the final-state lepton via getFinal().
+
+       Containment logic:
+           dr_b < R  AND  dr_l < R:
+               Label is Top_ben (electron) or Top_bmn (muon).
+
+       If the lepton or b is outside the cone: returns Invalid.
+       Neutrinos are never checked — they escape the detector regardless.
+
+
+4.9  w_label(jet, parton)
+──────────────────────────
+
+    1. Advance to final W: w = getFinal(parton).
+    2. Check isHadronic(w). If leptonic: return Invalid.
+    3. Get two daughter quarks, sort by ΔR.
+    4. Containment: both dr_q1 < R AND dr_q2 < R required.
+       - If either quark |PID| >= p_c: W_cq
+       - Else: W_qq
+    Note: there is no partially-merged W label. If only one quark is
+    in the cone, Invalid is returned and the jet goes to QCD_all.
+
+
+4.10  z_label(jet, parton)
+───────────────────────────
+
+    Identical structure to w_label. Both daughter quarks must be within
+    the cone. Label is flavour-dependent:
+        Z_bb if both are b quarks
+        Z_cc if both are c quarks
+        Z_qq otherwise
+
+
+4.11  higgs_label(jet, parton)
+────────────────────────────────
+
+    Two branches based on Higgs decay mode:
+
+    A) H → VV* (is_hvv = true):
+       Triggered if the Higgs has >2 daughters, or if any daughter is a
+       W or Z. This covers H→WW* and H→ZZ*.
+
+       The code collects all quarks and leptons (e, μ only) reachable
+       from the Higgs daughters, descending one level into V→ff̄ if
+       the daughter is a W or Z. It counts how many of these fall within
+       the jet cone:
+
+           n_quarks_in_jet >= 4      → H_ww4q
+           n_quarks_in_jet == 2
+             AND n_leptons_in_jet == 1 → H_ww2q1l
+           Otherwise                 → Invalid
+
+    B) H → qq̄ directly (isHadronic(higgs, allow_gluon=true) == true):
+       Standard two-body hadronic decay (H→bb̄, H→cc̄, H→gg via loop).
+       Containment: both daughters must be within cone.
+           H_bb, H_cc, H_gg, H_qq depending on flavour.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. ParticleInfo STRUCT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A lightweight container holding the physical properties of one jet
+constituent, constructed from either a GenParticle* or a
+ParticleFlowCandidate*.
+
+For both input types, the four-momentum is reconstructed from the
+(pT, η, φ, mass) stored in the Delphes object using
+    ROOT::Math::PtEtaPhiMVector
+and then Cartesian components (px, py, pz, energy) are derived from it.
+This ensures consistency — the Cartesian components are always recomputed
+from the Delphes (pT, η, φ, M) representation rather than read directly,
+avoiding any rounding inconsistencies.
+
+Impact parameters (d0, d0err, dz, dzerr) are only populated from
+ParticleFlowCandidate; for GenParticles they remain at their default
+value of 0. In practice, the ntuplizer runs on Delphes output which
+stores constituents as ParticleFlowCandidates, so the GenParticle
+branch in this struct is a fallback.
+
+A sanity filter is applied in makeNtuples() after construction:
+    |pz| > 10000  OR  |eta| > 5  OR  pt <= 0  → particle discarded
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. makeNtuples() FUNCTION — main ntuplization loop
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+6.1  Output TTree branch layout
+────────────────────────────────
+
+floatVars (scalar branches, one value per jet):
+
+    is_signal       Binary flag: 1 if the jet is considered a fully-merged
+                    signal jet, 0 otherwise. See §6.3 for exact definition.
+
+    gen_match       Integer value of the FatJetLabel enum for this jet.
+                    Encodes the specific decay topology, not just the
+                    coarse process type. Values listed in §4.1.
+
+    genpart_pt/eta/phi/pid
+                    Kinematic properties of the matched generator-level
+                    parton (top, H, W, or Z). Zero if no match (QCD jets).
+
+    jet_pt/eta/phi/energy
+                    Reconstructed AK8 jet kinematics.
+
+    jet_sdmass      Soft-drop mass: jet->SoftDroppedP4[0].M()
+                    SoftDroppedP4[0] is the full soft-dropped jet four-
+                    momentum as stored by Delphes. Index 0 is the groomed
+                    jet itself (indices 1 and 2 are the two subjets).
+
+    jet_tau1–tau4   N-subjettiness values τ₁, τ₂, τ₃, τ₄ from
+                    jet->Tau[0..3]. Stored as raw values; ratios τ₂₁ etc.
+                    are not computed here.
+
+    jet_nparticles  Number of constituents after the sanity filter and
+                    before any truncation. Stored as float for branch
+                    uniformity.
+
+arrayVars (vector branches, one entry per constituent per jet):
+
+    part_px, part_py, part_pz, part_energy
+                    Cartesian four-momentum components [GeV], derived from
+                    (pT, η, φ, M) as described in §5.
+
+    part_pt         Transverse momentum [GeV].
+
+    part_deta       Pseudorapidity relative to the jet axis.
+                    Sign convention: multiplied by sign(jet η) so that
+                    the relative coordinate is always defined pointing
+                    away from η=0 regardless of jet direction:
+                        part_deta = sign(jet_eta) * (p.eta - jet_eta)
+
+    part_dphi       Azimuthal angle relative to the jet axis, wrapped to
+                    [−π, π] via deltaPhi(p.phi, jet->Phi). Since all
+                    constituents satisfy |Δφ| ≤ 0.8, the wrapping only
+                    matters for constituents near the ±π boundary.
+
+    part_charge     Electric charge (integer, stored as float).
+
+    part_pid        PDG particle ID (signed integer, stored as float).
+
+    part_d0val      Transverse impact parameter d₀ [mm], from
+                    ParticleFlowCandidate::D0. Zero for GenParticles.
+
+    part_d0err      Uncertainty on d₀ [mm].
+
+    part_dzval      Longitudinal impact parameter dz [mm], from
+                    ParticleFlowCandidate::DZ.
+
+    part_dzerr      Uncertainty on dz [mm].
+
+
+6.2  Event loop
+────────────────
+
+For each event, treeReader->ReadEntry(entry) loads all branches. The
+jet loop then iterates over all jets in the event from branchJet
+(the "FatJet" branch by default, corresponding to AK8 jets clustered
+by Delphes with the chosen algorithm and jet substructure settings).
+
+The pT and η cuts on jets are commented out in the current version:
+    // if (jet->PT < 500 || std::abs(jet->Eta) > 2)  continue;
+This means all jets, regardless of pT or η, are passed to the matching.
+A typical analysis would apply at least pT > 200–300 GeV for boosted
+jet studies.
+
+
+6.3  Signal/background classification
+───────────────────────────────────────
+
+For each jet, after matching:
+
+    TOP events:
+        is_signal = 1 if label ∈ {Top_bcq, Top_bqq, Top_ben, Top_bmn}
+        These are the fully merged (or lepton-in-jet) topologies.
+        Partially merged labels (Top_bc, Top_bq) give is_signal = 0.
+
+    HIGGS events:
+        is_signal = 1 if label > H_all (40) AND label < QCD_all (50)
+        i.e. any of H_bb, H_cc, H_qq, H_gg, H_ww4q, H_ww2q1l.
+
+    W events:
+        is_signal = 1 if label > W_all (20) AND label < Z_all (30)
+        i.e. W_cq or W_qq.
+
+    Z events:
+        is_signal = 1 if label > Z_all (30) AND label < H_all (40)
+        i.e. Z_bb, Z_cc, or Z_qq.
+
+    Rejection of unmatched signal jets:
+        If the event contains a signal parton (event_type_ != QCD) but
+        the jet was not matched (is_signal == 0), the jet is DISCARDED:
+            if (event_type_ != QCD && is_signal == 0) continue;
+        This prevents partially merged or geometrically unrelated jets
+        from contaminating the training sample in signal files.
+
+    QCD jets:
+        Always written. No geometric criterion is applied; any jet in
+        a QCD event that is not matched to a signal parton is retained.
+
+
+6.4  Constituent extraction
+────────────────────────────
+
+    jet->Constituents is a TRefArray pointing to either GenParticle or
+    ParticleFlowCandidate objects (depending on Delphes configuration).
+    The code handles both via IsA() type checking.
+
+    After the sanity filter (|pz| < 10000, |η| < 5, pT > 0), constituents
+    are sorted in descending pT order. This ordering is preserved in all
+    array branches.
+
+    jet_nparticles is set AFTER the sanity filter and sorting, so it
+    reflects the actual number of constituents stored in the array branches.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. KNOWN EDGE CASES AND CAVEATS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+(a) W-from-top mislabelling:
+    When the top decays hadronically but the b escapes the cone, the code
+    calls w_label() on the W-from-top. If the W decay products are both
+    contained, the jet receives gen_match = W_cq or W_qq. This jet comes
+    from a top event (event_type_ = Top) but carries a W label. It will
+    be rejected by the is_signal cut in a top sample, but would be a
+    source of confusion if gen_match is used directly as a multiclass
+    label without cross-checking event_type_.
+
+(b) First-match-wins ordering:
+    getLabel() returns as soon as any parton passes its containment
+    criteria. In tt̄ events with two jets, if both jets are matched, the
+    first jet in the loop takes the first parton it matches. The second
+    jet will then not find that parton (it is already processed) and may
+    be assigned a different label or QCD_all.
+
+(c) Tau leptons not considered:
+    The leptonic-top labelling (Top_ben, Top_bmn) only handles e and μ.
+    τ leptons from W decays are ignored; such jets fall through to Invalid
+    and are rejected.
+
+(d) impact parameters default to zero for GenParticles:
+    If the Delphes configuration does not produce ParticleFlowCandidates
+    and falls back to GenParticles, all d₀ and dz values will be 0.
+    This is a silent failure mode — the branches are filled but carry no
+    information.
+
+(e) jet_nparticles stored as float:
+    The nparticles count is stored in floatVars for branch-type uniformity.
+    It is an exact integer value cast to float, so no precision is lost
+    for typical constituent counts (≤ a few hundred).
+
+(f) Jet pT/η cuts are commented out:
+    Without the pT > 500 GeV and |η| < 2 cuts, low-pT or forward jets
+    are included. For boosted jet ML studies these cuts are normally
+    required and should be re-enabled or applied at analysis time.
+"""
