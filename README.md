@@ -73,8 +73,8 @@ Pythia8 configurations for QCD and TTBar are stored as JSON files in `PyDelphes/
 dijet configuration uses `frameType: 1` and runs standalone without any LHEF input from MadGraph.
 The TTBar configuration expects the LHEF output from the MadGraph step above.
 
-Default Pythia8 settings — including the CMS CP5 underlying event tune, which uses the
-`NNPDF3.1 nnlo_as_0118_luxqed` PDF set (LHAPDF ID `325100`) — are defined in
+This simulation uses the CMS CP5 underlying event tune, along with the
+`NNPDF3.1 nnlo_as_0118_luxqed` PDF set (LHAPDF ID `325100`). These are defined in
 `PyDelphes/configs/defaults.py` and can be freely modified. The arguments in the config JSON
 files are mostly self-explanatory.
 
@@ -99,14 +99,14 @@ generating repetitive deterministic event samples when doing so.
 
 ---
 
-### 4. Ntuplization
+### 4. nTuple Creation
 
 Each job produces a single ROOT file `delphes.root` at a path determined by the config JSON.
 This Delphes output tree must first be flattened into a standard ntuple.
 
 The macro `PyDelphes/ntuplizer/makeNtuples.C` is adapted from the
 [JetClass](https://github.com/jet-universe/particle_transformer) dataset ntuplizer. AI-generated
-documentation is available in `docs.txt` — it is recommended to read this before running. Launch
+documentation is available in `docs.txt`, it is recommended to read this before running. Launch
 the ntuplizer as:
 
 ```bash
@@ -131,6 +131,6 @@ file with one path per line. Files are processed in parallel using up to `N` cor
 
 Within this script, pairwise $\Delta R$ distances between jet constituents are computed alongside
 $p_T$-weight contributions. These are required for computing Energy-Energy Correlators (EECs) at
-arbitrary order in downstream analysis. The $\Delta R$ computation is the most time-intensive
+arbitrary order in downstream analysis. The $\Delta R$ computation is the most **time-intensive**
 step, and might be removed at a later stage since this is, in principle, easily derived on the fly. The final output is an HDF5 dataset containing all kinematic and derived quantities as
 NumPy arrays.
