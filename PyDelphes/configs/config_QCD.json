@@ -1,0 +1,13 @@
+{
+    "run_id": "qcd_dijet/run_XX",
+    "run": {
+        "nevents": 500000,
+        "lhe_frame_type": 1,
+        "pthat_min": 100
+    },
+    "paths": {
+        "output_dir": "/ceph/abal/QFIT/MC/ROOTFILES/",
+        "delphes_card": "/work/abal/QFIT/MC/PyDelphes/configs/Delphes_CMS_JET.tcl",
+        "model_dir": "/work/abal/QFIT/MC/PyDelphes/user_models/"
+    }
+}

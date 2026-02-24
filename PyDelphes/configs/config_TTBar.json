@@ -1,0 +1,13 @@
+{
+    "run_id": "TTBar/run_XX_decayed_1",
+    "run": {
+        "nevents": 500000,
+        "lhe_frame_type": 4
+    },
+    "paths": {
+        "lhe_file":   "/ceph/abal/QFIT/MC/MadGraph_generation/TTBar/Events/run_XX_decayed_1/unweighted_events.lhe.gz",
+        "output_dir": "/ceph/abal/QFIT/MC/ROOTFILES/",
+        "delphes_card": "/work/abal/QFIT/MC/PyDelphes/configs/Delphes_CMS_JET.tcl",
+        "model_dir": "/work/abal/QFIT/MC/PyDelphes/user_models/"
+    }
+}
