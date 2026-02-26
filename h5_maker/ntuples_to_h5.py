@@ -369,9 +369,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--jet-type",
         type=str,
-        choices=["dijet", "TTBar","HToCC","HToBB","WToQQ","ZToQQ"],
-        default="dijet",
-        help="Type of jets being processed (default: dijet). Required for normal mode to determine output filename. Ignored in test-run mode.", 
+        choices=["qcd_dijet", "TTBar","HToCC","HToBB","WToQQ","ZToQQ"],
+        default="qcd_dijet",
+        help="Type of jets being processed (default: qcd_dijet). Required for normal mode to determine output filename. Ignored in test-run mode.", 
     )
     parser.add_argument(
         "--max-cores",
