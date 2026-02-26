@@ -3,7 +3,7 @@
     "run": {
         "nevents": 500000,
         "lhe_frame_type": 1,
-        "pthat_min": 100
+        "pthat_min": 400
     },
     "paths": {
         "output_dir": "/ceph/abal/QFIT/MC/ROOTFILES/",

@@ -457,7 +457,7 @@ module FastJetFinder FatJetFinder {
   set SymmetryCutSoftDrop 0.1
   set R0SoftDrop 0.8
 
-  set JetPTMin 100.0
+  set JetPTMin 300.0
 }
 
 
