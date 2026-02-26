@@ -19,7 +19,9 @@ Working installations of the following are required:
 - [Delphes](https://cp3.irmp.ucl.ac.be/projects/delphes)
 - [FastJet](http://fastjet.fr/)
 
+
 The Docker container [neutrinoman4/hep-stack:latest](https://hub.docker.com/repository/docker/neutrinoman4/hep-stack/tags/latest/sha256-65ea12354bc93cf753736bc5e1d5ee457756aae7ba17aee648756617342b7033) (as of now, minimally tested) contains these packages and may be used. 
+
 ---
 
 ### 1. Hard Scattering with MadGraph (TTBar only)
