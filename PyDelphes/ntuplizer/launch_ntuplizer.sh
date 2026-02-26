@@ -52,8 +52,8 @@ fi
 # ---------------------------------------------------------------------------
 # Path templates
 # ---------------------------------------------------------------------------
-INPUT_TEMPLATE="/ceph/abal/QFIT/MC/ROOTFILES/TTBar/run_XX_decayed_1/delphes.root"
-OUTPUT_BASE="/ceph/abal/QFIT/MC/nTuples/TTBar"
+INPUT_TEMPLATE="/ceph/abal/QFIT/MC/ROOTFILES/qcd_dijet/run_XX/delphes.root"
+OUTPUT_BASE="/ceph/abal/QFIT/MC/nTuples/qcd_dijet"
 TMP_BASE="/tmp/abal/ntuplizer_runs"
 
 # ---------------------------------------------------------------------------

@@ -24,5 +24,5 @@ import model sm-ckm
 define p = p b b~
 define j = j b b~
 generate p p > t t~
-output /ceph/abal/QFIT/MC/TTBar
+output /ceph/abal/QFIT/MC/MadGraph_generation/TTBar
 
