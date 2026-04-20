@@ -3,13 +3,13 @@ Convert JetClass Delphes-ntuplizer ROOT files into HDF5 format for ML training.
 
 Extracts:
   - Jet-level features: pT, η, φ, energy, nParticles, soft-drop mass,
-    N-subjettiness ratios (τ₂₁, τ₃₂, τ₄₃).
+    N-subjettiness ratios (tau_21, tau_32, tau_43).
   - Constituent-level (padded to 100):
-      · jetConstituentsList  : [Δη, Δφ, pT]  (relative to jet axis)
+      · jetConstituentsList  : [delta_eta, delta_phi, pT]  (relative to jet axis)
       · jetConstituentsExtra : [px, py, pz, E, charge, PID,
                                 d0val, d0err, dzval, dzerr]
   - Precomputed EEC building blocks:
-      · pair_delta_R          : upper-triangular ΔR matrix (N, 100, 100)
+      · pair_delta_R          : upper-triangular DELTA_R matrix (N, 100, 100)
       · constituent_pt_weight : per-particle pT weight  (N, 100)
 
 Author: Aritra Bal (ETP)
@@ -111,16 +111,16 @@ def zero_pad_to_numpy(
 # ---------------------------------------------------------------------------
 def delta_r_pair(eta_phi: np.ndarray) -> np.ndarray:
     """
-    Compute pairwise ΔR between all constituent pairs within each jet.
+    Compute pairwise DELTA_R between all constituent pairs within each jet.
 
     Only the strict upper triangle (i < j) is populated; entries where
     i ≥ j are set to zero, avoiding double-counting of symmetric pairs.
 
     Phi-wrapping note
     -----------------
-    The input Δφ values are already computed relative to the AK8 jet axis
-    (via deltaPhi in the ntuplizer), so each particle satisfies |Δφ_i| ≤ 0.8.
-    The maximum pairwise difference is therefore |Δφ_i − Δφ_j| ≤ 1.6 < π,
+    The input delta_phi values are already computed relative to the AK8 jet axis
+    (via deltaPhi in the ntuplizer), so each particle satisfies |delta_phi_i| ≤ 0.8.
+    The maximum pairwise difference is therefore |delta_phi_i − delta_phi_j| ≤ 1.6 < π,
     which is safely within the principal range.  No additional φ-wrapping is
     required when forming pairwise differences.
 
@@ -153,7 +153,7 @@ def delta_r_pair(eta_phi: np.ndarray) -> np.ndarray:
     eta: np.ndarray = eta_phi[:, :, 0]  # (N, P)
     phi: np.ndarray = eta_phi[:, :, 1]  # (N, P)
 
-    # Broadcasting: expand to (N, P, 1) vs (N, 1, P) → (N, P, P)
+    # Broadcasting: expand to (N, P, 1) vs (N, 1, P) --> (N, P, P)
     deta: np.ndarray = eta[:, :, np.newaxis] - eta[:, np.newaxis, :]
     dphi: np.ndarray = phi[:, :, np.newaxis] - phi[:, np.newaxis, :]
 
@@ -175,11 +175,11 @@ def pt_weight(pt: np.ndarray) -> np.ndarray:
     The 2-point differential Energy-Energy Correlator uses pT-based energy
     fractions as proxy weights:
 
-        w_i = pT_i / Σ_{k=1}^{N_part} pT_k
+        w_i = pT_i / SUM_{k=1}^{N_part} pT_k
 
-    so that Σ_i w_i = 1 for each jet.  The EEC integrand is then:
+    so that SUM_i w_i = 1 for each jet.  The EEC integrand is then:
 
-        EEC(R) = Σ_{i < j}  w_i · w_j · δ(R − ΔR_{ij})
+        EEC(R) = SUM_{i < j}  w_i · w_j · delta(R − DELTA_R_{ij})
 
     This function provides the weight vector w_i.  Padded constituents
     (pT = 0) automatically receive w_i = 0, so they do not contribute
@@ -243,7 +243,20 @@ def process_file(task: tuple) -> None:
         d0err_ak = tree["part_d0err"].array(entry_stop=entry_stop)
         dzval_ak = tree["part_dzval"].array(entry_stop=entry_stop)
         dzerr_ak = tree["part_dzerr"].array(entry_stop=entry_stop)
-        truth_label = tree["is_signal"].array(entry_stop=entry_stop).to_numpy()  # (N,)
+        truth_label  = tree["is_signal"].array(entry_stop=entry_stop).to_numpy()  # (N,)
+        try:
+            is_WToQQ     = tree["is_WToQQ"].array(entry_stop=entry_stop).to_numpy()
+            is_ZToQQ     = tree["is_ZToQQ"].array(entry_stop=entry_stop).to_numpy()
+            is_HToQQ     = tree["is_HToQQ"].array(entry_stop=entry_stop).to_numpy()
+            is_TTBar     = tree["is_TTBar"].array(entry_stop=entry_stop).to_numpy()
+        except KeyError:
+            # Handle the case where these branches are not present
+            logger.warning("One or more truth label branches (is_WToQQ, is_ZToQQ, is_HToQQ, is_TTBar) not found in %s; filling with zeros.", rfile)
+            is_WToQQ = np.zeros_like(truth_label, dtype=bool)
+            is_ZToQQ = np.zeros_like(truth_label, dtype=bool)
+            is_HToQQ = np.zeros_like(truth_label, dtype=bool)
+            is_TTBar = np.zeros_like(truth_label, dtype=bool)
+
         # Number of real constituents per jet (before padding)
         nparticles: np.ndarray = ak.num(pt_ak, axis=1).to_numpy()
 
@@ -297,7 +310,7 @@ def process_file(task: tuple) -> None:
     tau32: np.ndarray = np.where(tau2 > 0.0, tau3 / tau2, 0.0)
     tau43: np.ndarray = np.where(tau3 > 0.0, tau4 / tau3, 0.0)
     logger.info("Computed N-subjettiness ratios (tau21, tau32, tau43)")
-    # jetFeatures : (N, 9) – [pT, η, φ, E, nPart, sdMass, τ₂₁, τ₃₂, τ₄₃]
+    # jetFeatures : (N, 9) – [pT, η, φ, E, nPart, sdMass, tau_21, tau_32, tau_43]
     jet_features: np.ndarray = np.stack(
         [jet_pt, jet_eta, jet_phi, jet_energy,
          nparticles.astype(np.float32),
@@ -309,17 +322,17 @@ def process_file(task: tuple) -> None:
 
     # ---- EEC building blocks -----------------------------------------------
     # eta_phi tensor for delta_r_pair: (N, 100, 2)
-    logger.info("Computing pairwise delta_R matrix for all jets (this may take a while)...")
+    #logger.info("Computing pairwise delta_R matrix for all jets (this may take a while)...")
     eta_phi_tensor: np.ndarray = np.stack([part_deta, part_dphi], axis=-1).astype(np.float32)
-    pair_dr:   np.ndarray = delta_r_pair(eta_phi_tensor)          # (N, 100, 100)
-    pt_weights: np.ndarray = pt_weight(part_pt.astype(np.float32)) # (N, 100)
+    #pair_dr:   np.ndarray = delta_r_pair(eta_phi_tensor)          # (N, 100, 100)
+    #pt_weights: np.ndarray = pt_weight(part_pt.astype(np.float32)) # (N, 100)
 
     # ---- Sanity checks ----------------------------------------------------
     assert not np.isnan(jet_pfc).any(),     "NaN detected in jet_pfc"
     assert not np.isnan(jet_extra).any(),   "NaN detected in jet_extra"
     assert not np.isnan(jet_features).any(),"NaN detected in jet_features"
-    assert not np.isnan(pair_dr).any(),     "NaN detected in pair_delta_R"
-    assert not np.isnan(pt_weights).any(),  "NaN detected in constituent_pt_weight"
+    #assert not np.isnan(pair_dr).any(),     "NaN detected in pair_delta_R"
+   #assert not np.isnan(pt_weights).any(),  "NaN detected in constituent_pt_weight"
 
     # ---- Write HDF5 --------------------------------------------------------
     pathlib.Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -328,13 +341,17 @@ def process_file(task: tuple) -> None:
         f.create_dataset("jetConstituentsList",data=jet_pfc)
         f.create_dataset("jetConstituentsExtra",data=jet_extra)
         f.create_dataset("jetFeatures",data=jet_features)
-        f.create_dataset("pair_delta_R",data=pair_dr)
-        f.create_dataset("constituent_pt_weight",data=pt_weights)
+        #f.create_dataset("pair_delta_R",data=pair_dr)
+        #f.create_dataset("constituent_pt_weight",data=pt_weights)
         f.create_dataset("jetConstituentsMask",data=part_mask.astype(np.bool_))
         f.create_dataset("particleFeatureNames",data=np.array(PARTICLE_FEATURE_NAMES, dtype=H5_STR_DTYPE))
         f.create_dataset("jetConstituentsExtraNames",data=np.array(EXTRA_FEATURE_NAMES, dtype=H5_STR_DTYPE))
         f.create_dataset("jetFeatureNames",data=np.array(JET_FEATURE_NAMES, dtype=H5_STR_DTYPE))
         f.create_dataset("truth_label", data=truth_label.astype(np.int8))
+        f.create_dataset("is_WToQQ",    data=is_WToQQ.astype(np.int8))
+        f.create_dataset("is_ZToQQ",    data=is_ZToQQ.astype(np.int8))
+        f.create_dataset("is_HToQQ",    data=is_HToQQ.astype(np.int8))
+        f.create_dataset("is_TTBar",    data=is_TTBar.astype(np.int8))
     logger.info("Written: %s  (%d jets)", output_path, len(jet_pt))
 
 
@@ -369,7 +386,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--jet-type",
         type=str,
-        choices=["qcd_dijet", "TTBar","HToCC","HToBB","WToQQ","ZToQQ"],
         default="qcd_dijet",
         help="Type of jets being processed (default: qcd_dijet). Required for normal mode to determine output filename. Ignored in test-run mode.", 
     )
@@ -438,7 +454,7 @@ def main() -> None:
         # ---- Test-run mode: single file, 100 events -----------------------
         test_out = "/tmp/abal/test.h5"
         pathlib.Path("/tmp/abal").mkdir(parents=True, exist_ok=True)
-        logger.info("TEST RUN – processing 1 file / 100 events → %s", test_out)
+        logger.info("TEST RUN – processing 1 file / 100 events --> %s", test_out)
         process_file((file_list[0], test_out, 100))
         return
 
@@ -447,7 +463,7 @@ def main() -> None:
         raise ValueError("--output-dir is required when not running in --test-run mode.")
 
     
-    # Build task list: each ROOT file → sibling h5 in output_dir
+    # Build task list: each ROOT file --> sibling h5 in output_dir
     tasks: list[tuple] = []
     for i,rfile in enumerate(file_list):
         try:
@@ -461,7 +477,7 @@ def main() -> None:
         output_dir = pathlib.Path(args.output_dir) / args.jet_type / f"{run_id}"
         output_dir.mkdir(parents=True, exist_ok=True)
         out_path = str(output_dir / f"{args.jet_type}.h5")
-        tasks.append((rfile, out_path, None))  # None → all events
+        tasks.append((rfile, out_path, None))  # None --> all events
 
     n_cores: int = min(args.max_cores, len(tasks))
     logger.info("Using %d worker(s) for %d file(s)", n_cores, len(tasks))
