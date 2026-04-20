@@ -135,7 +135,7 @@ def prepare_lhe(config: dict, output_dir: Path) -> Path:
     tmp_dir.mkdir(parents=True, exist_ok=True)
     lhe_path = tmp_dir / f'unweighted_events_{run_number}.lhe'
 
-    logger.info(f"Decompressing LHE file: {source} → {lhe_path}")
+    logger.info(f"Decompressing LHE file: {source} --> {lhe_path}")
     with gzip.open(source, "rb") as f_in, open(lhe_path, "wb") as f_out:
         shutil.copyfileobj(f_in, f_out)
     logger.info("Decompression complete.")
@@ -387,7 +387,7 @@ def stage_delphes_card(config: dict, cards_dir: Path) -> Path:
 
     local_card = cards_dir / source.name
     shutil.copy2(source, local_card)
-    logger.info(f"Delphes card staged: {source} → {local_card}")
+    logger.info(f"Delphes card staged: {source} --> {local_card}")
     return local_card
 
 
