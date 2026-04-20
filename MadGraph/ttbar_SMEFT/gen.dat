@@ -21,4 +21,4 @@ define l- = e- mu-
 define vl = ve vm vt
 define vl~ = ve~ vm~ vt~
 generate p p > t t~ NP<=2
-output /ceph/abal/QFIT/MC/MadGraph_generation/TTBar_SMEFT
+output /ceph/abal/QFIT/MC/MadGraph_generation/TTBar_SMEFT_cTG_0p1

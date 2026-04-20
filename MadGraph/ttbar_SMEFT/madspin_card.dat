@@ -22,7 +22,5 @@
 # specify the decay for the final state particles
 decay t > w+ b, w+ > j j
 decay t~ > w- b~, w- > j j
-decay w+ > j j
-decay w- > j j
 # running the actual code
 launch

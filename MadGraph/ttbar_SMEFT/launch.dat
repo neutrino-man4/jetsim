@@ -1,4 +1,4 @@
-launch /ceph/abal/QFIT/MC/MadGraph_generation/TTBar_SMEFT/
+launch /ceph/abal/QFIT/MC/MadGraph_generation/TTBar_SMEFT_cTG_0p1/
     madspin=ON
     set nevents 500000
     set run_card ebeam1 6800
