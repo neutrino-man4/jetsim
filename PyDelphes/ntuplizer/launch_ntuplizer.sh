@@ -25,15 +25,15 @@
 # ---------------------------------------------------------------------------
 # Argument validation
 # ---------------------------------------------------------------------------
-if [[ $# -ne 3 ]]; then
-    echo "Usage: $0 <J: number of runs> <N: max cores> <path/to/makeNtuples.C>" >&2
+if [[ $# -ne 4 ]]; then
+    echo "Usage: $0 <J: number of runs> <N: max cores> <path/to/makeNtuples.C> <seed(qcd_dijet, ttbar, etc)> " >&2
     exit 1
 fi
 
 J="${1}"
 N="${2}"
 MACRO_SRC="$(realpath "${3}")"
-
+SEED="$4"
 if [[ ! -f "${MACRO_SRC}" ]]; then
     echo "ERROR: Macro not found: ${MACRO_SRC}" >&2
     exit 1
@@ -48,13 +48,25 @@ if ! [[ "${N}" =~ ^[1-9][0-9]*$ ]]; then
     echo "ERROR: N must be a positive integer, got '${N}'" >&2
     exit 1
 fi
-
+RUN_STR="run_XX"
+# if TTBar or WToQQ is in the seed then add a decayed_1 suffix to the run directories, otherwise leave it out (for QCD)
+if [[ "${SEED}" == *"TTBar"* ]] || [[ "${SEED}" == *"WToQQ"* ]]; then
+    RUN_STR="run_XX_decayed_1"
+fi
 # ---------------------------------------------------------------------------
 # Path templates
 # ---------------------------------------------------------------------------
-INPUT_TEMPLATE="/ceph/abal/QFIT/MC/ROOTFILES/qcd_dijet/run_XX/delphes.root"
-OUTPUT_BASE="/ceph/abal/QFIT/MC/nTuples/qcd_dijet"
+INPUT_TEMPLATE="/ceph/abal/QFIT/MC/ROOTFILES/${SEED}/${RUN_STR}/delphes.root" ## Remove the _decayed_1 suffix when running for QCD. TODO: FIX at some point
+OUTPUT_BASE="/ceph/abal/QFIT/MC/nTuples/${SEED}"
 TMP_BASE="/tmp/abal/ntuplizer_runs"
+
+echo "[INFO] Configuration:"
+echo "       J = ${J}"
+echo "       N = ${N}"
+echo "       Macro = ${MACRO_SRC}"
+echo "       Input template = ${INPUT_TEMPLATE}"
+echo "       Output base   = ${OUTPUT_BASE}"
+echo "############################################################################"
 
 # ---------------------------------------------------------------------------
 # Cleanup: remove all per-run temp dirs on exit
@@ -77,9 +89,14 @@ mkdir -p "${TMP_BASE}"
 # xargs passes a single argument: the zero-padded run index (e.g. "03")
 run_one() {
     local xx="${1}"                  # e.g. "03"
-    local tmp_dir="${TMP_BASE}/run_${xx}"
+    local run_dir="run_${xx}"        # e.g. "run_03"
+    # If the seed contains "TTBar" or "WToQQ", we need to add the "_decayed_1" suffix to match the input template
+    if [[ "${SEED}" == *"TTBar"* ]] || [[ "${SEED}" == *"WToQQ"* ]]; then
+        run_dir="run_${xx}_decayed_1"
+    fi
+    local tmp_dir="${TMP_BASE}/${run_dir}"
     local input_file="${INPUT_TEMPLATE/XX/${xx}}"
-    local output_dir="${OUTPUT_BASE}/run_${xx}"
+    local output_dir="${OUTPUT_BASE}/${run_dir}"
     local output_file="${output_dir}/output.root"
     local macro_copy="${tmp_dir}/makeNtuples.C"
 
@@ -95,8 +112,8 @@ run_one() {
 
     # Copy macro into the temp dir so ROOT writes its .so/.d/.pcm there
     cp "${MACRO_SRC}" "${macro_copy}"
-
-    echo "[INFO]  run_${xx}: starting  →  ${output_file}"
+    echo "[INFO] run_${xx}: Reading input from ${input_file}"
+    echo "[INFO]  run_${xx}: Will write to ${output_file}"
 
     # ---- Run ROOT in the isolated temp dir ---------------------------------
     # 'cd' is done in a subshell so it does not affect the parent process.
@@ -104,7 +121,7 @@ run_one() {
         cd "${tmp_dir}"
         root -l -b -q \
             "makeNtuples.C+(\"${input_file}\", \"${output_file}\", \"FatJet\")" \
-            > "${tmp_dir}/root_stdout.log" 2> "${tmp_dir}/root_stderr.log"
+            > "${tmp_dir}/root_stdout.log"
     )
     local exit_code=$?
 
@@ -113,14 +130,14 @@ run_one() {
              "See ${tmp_dir}/root_stderr.log" >&2
         return "${exit_code}"
     fi
-
+    echo "[INFO] run_${xx}: Delphes output at ${input_file} processed successfully using ${macro_copy}."
     echo "[INFO]  run_${xx}: finished  →  ${output_file}"
 }
 
 # Export the function and variables so the bash subprocess spawned by
 # xargs can see them.
 export -f run_one
-export INPUT_TEMPLATE OUTPUT_BASE TMP_BASE MACRO_SRC
+export INPUT_TEMPLATE OUTPUT_BASE TMP_BASE MACRO_SRC SEED
 
 # ---------------------------------------------------------------------------
 # Build the list of zero-padded run indices and dispatch via xargs
