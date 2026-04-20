@@ -753,13 +753,17 @@ struct ParticleInfo {
 
 void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "FatJet") {
   gSystem->Load("libDelphes");
-
+  std::cerr << "** Starting makeNtuples with input file: " << inputFile << std::endl;
   TFile *fout = new TFile(outputFile, "RECREATE");
   TTree *tree = new TTree("tree", "tree");
 
   // define branches
   std::map<TString, float> floatVars;
   floatVars["is_signal"] = 0;
+  floatVars["is_WToQQ"] = 0;
+  floatVars["is_ZToQQ"] = 0;
+  floatVars["is_HToQQ"] = 0;
+  floatVars["is_TTBar"] = 0;
 
   floatVars["gen_match"] = 0;
   floatVars["genpart_pt"] = 0;
@@ -846,17 +850,25 @@ void makeNtuples(TString inputFile, TString outputFile, TString jetBranch = "Fat
       auto label = fjmatch.getLabel(jet, branchParticle);
       floatVars["gen_match"] = label.first;
       floatVars["is_signal"] = 0;
+      floatVars["is_WToQQ"]  = 0;
+      floatVars["is_ZToQQ"]  = 0;
+      floatVars["is_HToQQ"]  = 0;
+      floatVars["is_TTBar"]  = 0;
 
       if (fjmatch.event_type() == FatJetMatching::EventType::Top) {
         // only consider fully merged
-        floatVars["is_signal"] = (label.first == FatJetMatching::Top_bcq || label.first == FatJetMatching::Top_bqq ||
+        floatVars["is_TTBar"]  = (label.first == FatJetMatching::Top_bcq || label.first == FatJetMatching::Top_bqq ||
                                   label.first == FatJetMatching::Top_ben || label.first == FatJetMatching::Top_bmn);
+        floatVars["is_signal"] = floatVars["is_TTBar"];
       } else if (fjmatch.event_type() == FatJetMatching::EventType::Higgs) {
-        floatVars["is_signal"] = (label.first > FatJetMatching::H_all && label.first < FatJetMatching::QCD_all);
+        floatVars["is_HToQQ"]  = (label.first > FatJetMatching::H_all && label.first < FatJetMatching::QCD_all);
+        floatVars["is_signal"] = floatVars["is_HToQQ"];
       } else if (fjmatch.event_type() == FatJetMatching::EventType::W) {
-        floatVars["is_signal"] = (label.first > FatJetMatching::W_all && label.first < FatJetMatching::Z_all);
+        floatVars["is_WToQQ"]  = (label.first > FatJetMatching::W_all && label.first < FatJetMatching::Z_all);
+        floatVars["is_signal"] = floatVars["is_WToQQ"];
       } else if (fjmatch.event_type() == FatJetMatching::EventType::Z) {
-        floatVars["is_signal"] = (label.first > FatJetMatching::Z_all && label.first < FatJetMatching::H_all);
+        floatVars["is_ZToQQ"]  = (label.first > FatJetMatching::Z_all && label.first < FatJetMatching::H_all);
+        floatVars["is_signal"] = floatVars["is_ZToQQ"];
       }
 
       if (fjmatch.event_type() != FatJetMatching::EventType::QCD && floatVars["is_signal"] == 0) {
